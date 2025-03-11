@@ -24,6 +24,46 @@ function setDeepValue(obj, path, value) {
   current[parts[parts.length - 1]] = value;
 }
 
+/** ✅ Recursively renders form fields for JSON objects */
+function DynamicForm({ data, onChange, path = "" }) {
+  if (Array.isArray(data)) {
+    return (
+      <div style={{ marginLeft: "20px" }}>
+        {data.map((item, index) => (
+          <div key={index} style={{ marginBottom: "5px" }}>
+            <label>{index}:</label>
+            <DynamicForm data={item} onChange={onChange} path={path ? `${path}.${index}` : `${index}`} />
+          </div>
+        ))}
+      </div>
+    );
+  } else if (typeof data === "object" && data !== null) {
+    return (
+      <div style={{ marginLeft: "20px", borderLeft: "1px solid #ccc", paddingLeft: "10px" }}>
+        {Object.entries(data).map(([key, value]) => {
+          const newPath = path ? `${path}.${key}` : key;
+          return (
+            <div key={key} style={{ marginBottom: "5px" }}>
+              <label>{key}:</label>
+              <DynamicForm data={value} onChange={onChange} path={newPath} />
+            </div>
+          );
+        })}
+      </div>
+    );
+  } else {
+    return (
+      <KatInput
+        id={path}
+        style={{ marginLeft: "10px" }}
+        type={typeof data === "number" ? "number" : "text"}
+        value={data || ""}
+        onChange={(e) => onChange(path, e.target.value)}
+      />
+    );
+  }
+}
+
 class PayloadEditorModalCustomer extends Component {
   constructor(props) {
     super(props);
@@ -96,19 +136,17 @@ class PayloadEditorModalCustomer extends Component {
       this.setState((prevState) => {
         let newIndex = prevState.historyIndex;
         if (!event.shiftKey && prevState.historyIndex > 0) {
-          // Undo (Cmd + Z)
-          newIndex--;
+          newIndex--; // Undo (Cmd + Z)
         } else if (event.shiftKey && prevState.historyIndex < prevState.history.length - 1) {
-          // Redo (Cmd + Shift + Z)
-          newIndex++;
+          newIndex++; // Redo (Cmd + Shift + Z)
         }
 
         return {
           rawPayload: prevState.history[newIndex],
           historyIndex: newIndex,
+          formPayload: JSON.parse(prevState.history[newIndex]),
         };
       }, () => {
-        // Update the div with the new state
         if (this.payloadDivRef.current) {
           this.payloadDivRef.current.innerText = this.state.rawPayload;
         }
@@ -125,6 +163,17 @@ class PayloadEditorModalCustomer extends Component {
     document.removeEventListener("keydown", this.handleUndoRedo);
   }
 
+  /** ✅ Handle form field updates */
+  handleDynamicChange = (path, value) => {
+    const updatedPayload = JSON.parse(JSON.stringify(this.state.formPayload));
+    setDeepValue(updatedPayload, path, value);
+    this.setState({
+      formPayload: updatedPayload,
+      rawPayload: JSON.stringify(updatedPayload, null, 2),
+      error: null,
+    });
+  };
+
   handleSubmit = async () => {
     try {
       const payloadToSend = JSON.parse(this.state.rawPayload);
@@ -134,7 +183,7 @@ class PayloadEditorModalCustomer extends Component {
         return;
       }
       const response = await apiService({
-        url: "https://ba35go67nk.execute-api.us-west-2.amazonaws.com/alpha/onboard-to-bourne/create-customer",
+        url: "https://api.example.com/create-customer",
         body: JSON.stringify(payloadToSend),
         httpMethod: POST_METHOD_TYPE,
       });
@@ -148,13 +197,12 @@ class PayloadEditorModalCustomer extends Component {
 
   render() {
     const { visible, onClose } = this.props;
-    const { rawPayload, error } = this.state;
+    const { formPayload, rawPayload, error } = this.state;
 
     return (
       <KatModal visible={visible} onClose={onClose} title="Enter Customer Configuration Payload">
         <KatLabel>Raw JSON Payload:</KatLabel>
 
-        {/* ✅ Preserve Cursor Position in Editable Div & Support Undo/Redo */}
         <div
           ref={this.payloadDivRef}
           contentEditable={true}
@@ -170,20 +218,16 @@ class PayloadEditorModalCustomer extends Component {
             fontFamily: "monospace",
             whiteSpace: "pre-wrap",
             overflowY: "auto",
-            outline: "none",
           }}
           suppressContentEditableWarning={true}
         >
           {rawPayload}
         </div>
 
-        <br />
-        {error && <p style={{ color: "red" }}>{error}</p>}
-        <br />
+        <h4>Form Fields (Generated from JSON)</h4>
+        <DynamicForm data={formPayload} onChange={this.handleDynamicChange} />
 
-        <div style={{ marginTop: "20px" }}>
-          <KatButton onClick={this.handleSubmit}>Submit Payload</KatButton>
-        </div>
+        <KatButton onClick={this.handleSubmit}>Submit Payload</KatButton>
       </KatModal>
     );
   }
