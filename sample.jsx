@@ -12,7 +12,7 @@ const { createCustomerPayload } = require("src/components/SIOTool/SAMPLE_PAYLOAD
 const ajv = new Ajv();
 const validator = ajv.compile(createCustomerSchemaValidator);
 
-/** ✅ Function to set deeply nested values inside JSON */
+/** Set a deeply nested value given a dot-delimited path */
 function setDeepValue(obj, path, value) {
   const parts = path.split(".");
   let current = obj;
@@ -24,7 +24,7 @@ function setDeepValue(obj, path, value) {
   current[parts[parts.length - 1]] = value;
 }
 
-/** ✅ Recursively renders form fields for JSON objects */
+/** Recursively render form fields from a JSON object */
 function DynamicForm({ data, onChange, path = "" }) {
   if (Array.isArray(data)) {
     return (
@@ -67,17 +67,18 @@ function DynamicForm({ data, onChange, path = "" }) {
 class PayloadEditorModalCustomer extends Component {
   constructor(props) {
     super(props);
+    const initialRaw = JSON.stringify(createCustomerPayload, null, 2);
     this.state = {
       formPayload: createCustomerPayload,
-      rawPayload: JSON.stringify(createCustomerPayload, null, 2),
+      rawPayload: initialRaw,
       error: null,
-      history: [JSON.stringify(createCustomerPayload, null, 2)], // Track changes for undo
-      historyIndex: 0, // Tracks undo/redo position
+      history: [initialRaw], // undo/redo history
+      historyIndex: 0,
     };
     this.payloadDivRef = React.createRef();
   }
 
-  /** ✅ Preserve Cursor Position */
+  // Get the current cursor position from the selection
   getCursorPosition = () => {
     const selection = window.getSelection();
     if (!selection.rangeCount) return null;
@@ -85,12 +86,12 @@ class PayloadEditorModalCustomer extends Component {
     return { startOffset: range.startOffset, endOffset: range.endOffset };
   };
 
+  // Set the cursor back to the saved position
   setCursorPosition = (position) => {
     if (!position || !this.payloadDivRef.current) return;
     const range = document.createRange();
     const selection = window.getSelection();
     const node = this.payloadDivRef.current.firstChild;
-
     if (node) {
       const offset = Math.min(position.startOffset, node.length);
       range.setStart(node, offset);
@@ -100,25 +101,23 @@ class PayloadEditorModalCustomer extends Component {
     }
   };
 
-  /** ✅ Handle JSON input changes while keeping cursor position */
+  // Update state when the contentEditable div changes.
   handleRawPayloadChange = () => {
     const cursorPosition = this.getCursorPosition();
     const content = this.payloadDivRef.current.innerText;
 
-    this.setState(
-      (prevState) => {
-        const newHistory = prevState.history.slice(0, prevState.historyIndex + 1);
-        newHistory.push(content);
-        return {
-          rawPayload: content,
-          history: newHistory,
-          historyIndex: newHistory.length - 1,
-        };
-      },
-      () => {
-        this.setCursorPosition(cursorPosition);
-      }
-    );
+    // Update history for undo/redo
+    this.setState((prevState) => {
+      const newHistory = prevState.history.slice(0, prevState.historyIndex + 1);
+      newHistory.push(content);
+      return {
+        rawPayload: content,
+        history: newHistory,
+        historyIndex: newHistory.length - 1,
+      };
+    }, () => {
+      this.setCursorPosition(cursorPosition);
+    });
 
     try {
       const parsed = JSON.parse(content);
@@ -128,19 +127,19 @@ class PayloadEditorModalCustomer extends Component {
     }
   };
 
-  /** ✅ Undo (`Cmd + Z`) and Redo (`Cmd + Shift + Z`) Handling */
+  // Handle undo/redo using keyboard events.
   handleUndoRedo = (event) => {
     if ((event.metaKey || event.ctrlKey) && event.key === "z") {
       event.preventDefault();
-
       this.setState((prevState) => {
         let newIndex = prevState.historyIndex;
         if (!event.shiftKey && prevState.historyIndex > 0) {
-          newIndex--; // Undo (Cmd + Z)
+          // Undo
+          newIndex--;
         } else if (event.shiftKey && prevState.historyIndex < prevState.history.length - 1) {
-          newIndex++; // Redo (Cmd + Shift + Z)
+          // Redo
+          newIndex++;
         }
-
         return {
           rawPayload: prevState.history[newIndex],
           historyIndex: newIndex,
@@ -154,7 +153,6 @@ class PayloadEditorModalCustomer extends Component {
     }
   };
 
-  /** ✅ Attach & Detach Keyboard Event Listeners */
   componentDidMount() {
     document.addEventListener("keydown", this.handleUndoRedo);
   }
@@ -163,14 +161,20 @@ class PayloadEditorModalCustomer extends Component {
     document.removeEventListener("keydown", this.handleUndoRedo);
   }
 
-  /** ✅ Handle form field updates */
+  // When dynamic form fields are updated
   handleDynamicChange = (path, value) => {
     const updatedPayload = JSON.parse(JSON.stringify(this.state.formPayload));
     setDeepValue(updatedPayload, path, value);
+    const updatedRaw = JSON.stringify(updatedPayload, null, 2);
     this.setState({
       formPayload: updatedPayload,
-      rawPayload: JSON.stringify(updatedPayload, null, 2),
+      rawPayload: updatedRaw,
       error: null,
+    }, () => {
+      // Sync the contentEditable div if needed.
+      if (this.payloadDivRef.current) {
+        this.payloadDivRef.current.innerText = updatedRaw;
+      }
     });
   };
 
@@ -183,7 +187,7 @@ class PayloadEditorModalCustomer extends Component {
         return;
       }
       const response = await apiService({
-        url: "https://api.example.com/create-customer",
+        url: "https://ba35go67nk.execute-api.us-west-2.amazonaws.com/alpha/onboard-to-bourne/create-customer",
         body: JSON.stringify(payloadToSend),
         httpMethod: POST_METHOD_TYPE,
       });
@@ -203,6 +207,7 @@ class PayloadEditorModalCustomer extends Component {
       <KatModal visible={visible} onClose={onClose} title="Enter Customer Configuration Payload">
         <KatLabel>Raw JSON Payload:</KatLabel>
 
+        {/* Editable div for raw JSON with cursor preservation */}
         <div
           ref={this.payloadDivRef}
           contentEditable={true}
@@ -218,16 +223,21 @@ class PayloadEditorModalCustomer extends Component {
             fontFamily: "monospace",
             whiteSpace: "pre-wrap",
             overflowY: "auto",
+            outline: "none",
           }}
           suppressContentEditableWarning={true}
         >
           {rawPayload}
         </div>
 
+        {error && <p style={{ color: "red" }}>{error}</p>}
+
         <h4>Form Fields (Generated from JSON)</h4>
         <DynamicForm data={formPayload} onChange={this.handleDynamicChange} />
 
-        <KatButton onClick={this.handleSubmit}>Submit Payload</KatButton>
+        <div style={{ marginTop: "20px" }}>
+          <KatButton onClick={this.handleSubmit}>Submit Payload</KatButton>
+        </div>
       </KatModal>
     );
   }
